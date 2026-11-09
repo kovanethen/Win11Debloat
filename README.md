@@ -27,7 +27,7 @@ Download & run the script automatically via PowerShell.
 2. Copy and paste the command below into PowerShell:
 
 ```PowerShell
-& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kovanethen/Win11Debloat/master/Get.ps1")))
+& ([scriptblock]::Create((irm "https://raw.githubusercontent.com/kovanethen/Win11Debloat/refs/heads/master/Scripts/Get.ps1")))
 ```
 
 3. Wait for the script to automatically download and launch Win11Debloat.
