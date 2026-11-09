@@ -1,4 +1,4 @@
-﻿[CmdletBinding(SupportsShouldProcess)]
+[CmdletBinding(SupportsShouldProcess)]
 param (
     [switch]$CLI,
     [switch]$Silent,
@@ -71,7 +71,7 @@ param (
     [switch]$DisablePaintAI,
     [switch]$DisableNotepadAI,
     [switch]$DisableEdgeAI,
-	[switch]$DisableChromeAI,
+    [switch]$DisableChromeAI,
     [switch]$DisableWidgets,
     [switch]$HideChat,
     [switch]$EnableEndTask,
@@ -106,6 +106,17 @@ param (
     [switch]$HideDriveLetters
 )
 
+# --- Non-interactive overrides ---
+# Always run silently. These are set before the elevation check so the elevated relaunch inherits them.
+$Silent = [switch]$true
+$PSBoundParameters['Silent'] = [switch]$true
+if (($PSBoundParameters.Keys | Where-Object { $_ -ne 'Silent' }).Count -eq 0) {
+    # No other args given: run the default profile automatically instead of opening the GUI.
+    # Change RunDefaults to RunDefaultsLite below for the lighter profile.
+    $RunDefaults = [switch]$true
+    $PSBoundParameters['RunDefaults'] = [switch]$true
+}
+
 # Win11Debloat depends on Windows PowerShell 5.1 cmdlets (the Appx module's Get-AppxPackage /
 # Remove-AppxPackage, and Get-ComputerRestorePoint) that do not load in PowerShell 7 (pwsh), where the
 # Appx module fails with "Operation is not supported on this platform" (0x80131539). Without this guard
@@ -122,13 +133,11 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] `
     [Security.Principal.WindowsIdentity]::GetCurrent()
 ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-# If script is not running as administrator ask user if they want to allow it
+# If script is not running as administrator, relaunch elevated automatically (no prompt)
 if (-not $isAdmin) {
-    Write-Host "Win11Debloat must be run as Administrator." -ForegroundColor Red
+    Write-Host "Win11Debloat must be run as Administrator. Relaunching elevated..." -ForegroundColor Yellow
 
-    $choice = Read-Host "Restart as Administrator? (y/n)"
-
-    if ($choice -match '^[Yy]$') {
+    if ($true) {
         # Win32-safe escaping for arguments to pass to elevated process
         function Format-ElevatedArg([string]$Value) {
             $escaped = $Value -replace '(\\*)"', '$1$1\"'
@@ -224,8 +233,6 @@ $script:AppRemovalVerificationUnavailable = $false
 # Check if current PowerShell environment is limited by security policies
 if ($ExecutionContext.SessionState.LanguageMode -ne "FullLanguage") {
     Write-Error "Win11Debloat is unable to run on your system, PowerShell execution is restricted by security policies"
-    Write-Output "Press any key to exit..."
-    $null = [System.Console]::ReadKey()
     Exit 1
 }
 
@@ -312,8 +319,6 @@ catch { }
 # Check if script has all required files
 if (-not ((Test-Path $script:DefaultSettingsFilePath) -and (Test-Path $script:AppsListFilePath) -and (Test-Path $script:RegfilesPath) -and (Test-Path $script:AssetsPath) -and (Test-Path $script:AppSelectionSchema) -and (Test-Path $script:ApplyChangesWindowSchema) -and (Test-Path $script:SharedStylesSchema) -and (Test-Path $script:BubbleHintSchema) -and (Test-Path $script:RestoreBackupWindowSchema) -and (Test-Path $script:FeaturesFilePath) -and (Test-Path $script:DefaultLanguagePath))) {
     Write-Error "Win11Debloat is unable to find required files, please ensure all script files are present"
-    Write-Output "Press any key to exit..."
-    $null = [System.Console]::ReadKey()
     Exit 1
 }
 
@@ -331,8 +336,6 @@ try {
 }
 catch {
     Write-Error "Failed to load feature info from Features.json file"
-    Write-Output "Press any key to exit..."
-    $null = [System.Console]::ReadKey()
     Exit 1
 }
 
@@ -350,12 +353,9 @@ catch {
     $script:WingetInstalled = $false
 }
 
-# Show WinGet warning that requires user confirmation, Suppress confirmation if Silent parameter was passed
-if (-not $script:WingetInstalled -and -not $Silent) {
+# Warn if WinGet is missing (no confirmation prompt in non-interactive mode)
+if (-not $script:WingetInstalled) {
     Write-Warning "WinGet is not installed or outdated, this may prevent Win11Debloat from removing certain apps"
-    Write-Output ""
-    Write-Output "Press any key to continue anyway..."
-    $null = [System.Console]::ReadKey()
 }
 
 
@@ -460,6 +460,14 @@ if (-not $script:WingetInstalled -and -not $Silent) {
 . "$PSScriptRoot/Scripts/Threading/Invoke-DoEvents.ps1"
 . "$PSScriptRoot/Scripts/Threading/Invoke-NonBlocking.ps1"
 
+# Non-interactive override: never wait for a key, just stop the transcript and exit with the given code.
+# Defined after the imports so it replaces the original from Wait-ForKeyPress.ps1.
+function Wait-ForKeyPress {
+    param([int]$ExitCode = 0)
+    try { Stop-Transcript | Out-Null } catch { }
+    exit $ExitCode
+}
+
 
 
 ##################################################################################################################
@@ -503,9 +511,6 @@ if (-not ($script:Params.ContainsKey("Verbose"))) {
 }
 else {
     Write-Host "Verbose mode is enabled"
-    Write-Output ""
-    Write-Output "Press any key to continue..."
-    $null = [System.Console]::ReadKey()
 
     $ProgressPreference = 'Continue'
 }
@@ -590,11 +595,6 @@ if ((-not $script:Params.Count) -or $RunDefaults -or $RunDefaultsLite -or $RunSa
                 $script:Lang = Import-LanguageFile -LanguageCode 'en-US'
                 Write-Warning "The graphical interface could not start: $($_.Exception.Message)"
                 Write-Verbose "GUI Failure details: $($_.Exception.ToString())"
-                if (-not $Silent) {
-                    Write-Host ""
-                    Write-Host "Press any key to continue in CLI mode..."
-                    $null = [System.Console]::ReadKey()
-                }
 
                 $Mode = Show-CliMenuOptions
             }
